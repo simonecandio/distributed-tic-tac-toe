@@ -1,103 +1,102 @@
-# Progetto Esame – Gioco del Tris P2P con Java RMI
+# Exam Project – P2P Tic-Tac-Toe Game with Java RMI
 
-Questo ramo contiene la versione aggiornata del progetto d’esame di **Algoritmi Distribuiti**:  
-un’applicazione **peer-to-peer** per giocare a **tris (tic-tac-toe)** tramite:
+This branch contains the updated version of the **Distributed Algorithms** exam project:
+a **peer-to-peer** application for playing **tic-tac-toe** through:
 
-- **Java RMI** per la comunicazione 
-- un sistema di **discovery automatico** dei peer tramite Multicast UDP
-- un meccanismo opzionale di **gossip epidemico** per propagare rapidamente la membership
-- un **matchmaking distribuito** completamente privo di server centrale
-- una gestione del gioco basata su **token logico**
-- un protocollo di **rematch** con coordinatore eletto tramite symmetry breaking
-
+- **Java RMI** for communication
+- an **automatic peer discovery** system via UDP Multicast
+- an optional **epidemic gossip** mechanism to quickly propagate membership
+- a **distributed matchmaking** system with no central server
+- game management based on a **logical token**
+- a **rematch** protocol with a coordinator elected through symmetry breaking
 
 ---
 
-## Struttura del progetto
+## Project Structure
 
-I file principali sono:
+The main files are:
 
-- `AutoPeerMain.java` – entry point dell’applicazione
-- `PeerService.java` – interfaccia RMI con i metodi remoti esposti dai peer
-- `PeerImpl.java` – implementazione concreta del peer (matchmaking, gioco, rematch)
-- `Discovery.java` – discovery dei peer tramite UDP multicast + (opzionale) gossip triggered
-- `GameBoard.java` – gestione della board 3×3 del tris
+- `AutoPeerMain.java` – application entry point
+- `PeerService.java` – RMI interface with the remote methods exposed by the peers
+- `PeerImpl.java` – concrete peer implementation (matchmaking, gameplay, rematch)
+- `Discovery.java` – peer discovery via UDP multicast + (optional) triggered gossip
+- `GameBoard.java` – management of the 3×3 tic-tac-toe board
 
-Tutti i file si trovano nel package:
+All files are located in the package:
 
 ```java
 package gamep2p;
-````
+```
 
 ---
 
-## Modello di sistema
+## System Model
 
-Ogni processo avviato tramite `AutoPeerMain` è un **peer distribuito**:
+Every process started through `AutoPeerMain` is a **distributed peer**:
 
-* espone un oggetto remoto RMI 
-* chiama metodi remoti sugli altri peer
-* partecipa al **discovery distribuito**
-* entra automaticamente nel **matchmaking**
-* gioca tramite un **token**, che garantisce la mutua esclusione sul turno
-* gestisce la chiusura e il rematch tramite un piccolo protocollo di consenso
+* it exposes an RMI remote object
+* it calls remote methods on other peers
+* it takes part in **distributed discovery**
+* it automatically enters **matchmaking**
+* it plays through a **token**, which guarantees mutual exclusion over the turn
+* it handles shutdown and rematch through a small consensus protocol
 
-Non esiste un server centrale né un’autorità:
-tutti i peer sono identici 
+There is no central server or authority:
+all peers are identical.
 
-Ogni peer possiede un identificatore globale:
+Each peer has a global identifier:
 
 ```
 myId = host:port
 ```
 
-utilizzato per:
+used to:
 
-* rompere la simmetria nel matchmaking,
-* decidere chi inizia la partita,
-* decidere chi coordina la fase di rematch,
-* selezionare in modo deterministico l’avversario.
+* break symmetry during matchmaking,
+* decide who starts the game,
+* decide who coordinates the rematch phase,
+* deterministically select the opponent.
 
 ---
 
-## File e responsabilità
+## Files and Responsibilities
 
-### `AutoPeerMain.java` – Avvio del peer
+### `AutoPeerMain.java` – Peer Startup
 
-Responsabilità principali:
+Main responsibilities:
 
-* parsing degli argomenti:
+* argument parsing:
 
   ```bash
-  java gamep2p.AutoPeerMain [host] [porta]
+  java gamep2p.AutoPeerMain [host] [port]
   ```
 
-* scelta di una porta libera se non specificata
+* selecting a free port if none is specified
 
-* creazione del peer:
+* peer creation:
 
   ```java
   PeerImpl peer = new PeerImpl(host, port);
   ```
 
-* avvio e binding nel registry RMI:
+* startup and binding in the RMI registry:
 
-  * creazione del registry sulla porta
-  * registrazione:
+  * creating the registry on the port
+  * registration:
 
     ```
     rmi://host:port/peer
     ```
 
-* il main thread poi rimane inattivo (il peer usa thread autonomi)
+* the main thread then stays idle (the peer uses its own threads)
 
 ---
 
-### `PeerService.java` – Interfaccia RMI
+### `PeerService.java` – RMI Interface
 
-Definisce le operazioni remote che un peer può invocare sull’altro.
+Defines the remote operations a peer can invoke on another.
 
-### Metodi di stato
+### State Methods
 
 * `boolean ping()`
 * `String getId()`
@@ -108,7 +107,7 @@ Definisce le operazioni remote che un peer può invocare sull’altro.
 * `boolean proposeMatch(String proposerId)`
 * `void confirmMatch(String opponentId, boolean iStart, char symbol)`
 
-### Gioco
+### Gameplay
 
 * `void receiveToken()`
 * `void updateMove(int row, int col, char symbol, char result)`
@@ -119,142 +118,141 @@ Definisce le operazioni remote che un peer può invocare sull’altro.
 * `void startRematch(boolean iStart, char mySymbol)`
 * `void noRematch()`
 
-Questi sono gli unici metodi realmente invocati tramite rete; per questo compaiono nel Class Diagram.
+These are the only methods actually invoked over the network; this is why they appear in the Class Diagram.
 
 ---
 
-### `GameBoard.java` – Logica del tris
+### `GameBoard.java` – Tic-Tac-Toe Logic
 
-Gestisce:
+Handles:
 
-* validazione mosse
-* applicazione simboli
-* verifica stato (`X`, `O`, `D`, ` `)
-* rendering user-friendly della board
+* move validation
+* symbol placement
+* state checking (`X`, `O`, `D`, ` `)
+* user-friendly rendering of the board
 
-È completamente locale e indipendente dalla rete.
+It is entirely local and independent of the network.
 
 ---
 
-### `Discovery.java` – Scoperta dei peer (HELLO + Gossip opzionale)
+### `Discovery.java` – Peer Discovery (HELLO + Optional Gossip)
 
-Il discovery mantiene la lista degli ID noti tramite:
+Discovery maintains the list of known IDs through:
 
-#### ✔ HELLO periodico (sempre attivo)
+#### ✔ Periodic HELLO (always active)
 
-Ogni peer invia:
+Each peer sends:
 
 ```
 HELLO <myId>
 ```
 
-dove `<myId>` è la stringa `host:port`.
+where `<myId>` is the `host:port` string.
 
-Il receiver aggiorna la lista dei peer attivi.
+The receiver updates the list of active peers.
 
-#### ✔ Gossip opzionale (abilitato tramite booleano nel costruttore)
+#### ✔ Optional Gossip (enabled via a boolean in the constructor)
 
-Le caratteristiche della versione aggiornata sono:
+The features of the updated version are:
 
-* **non** è periodico
-* viene inviato **solo quando cambia la vista** (nuovo peer scoperto)
-* è un **gossip unicast**, non multicast:
+* it is **not** periodic
+* it is sent **only when the view changes** (a new peer is discovered)
+* it is **unicast gossip**, not multicast:
 
-  * minor consumo di rete
-  * minor congestione
-* il payload contiene timestamp (`id;ts`) e viene propagato finché necessario
+  * lower network usage
+  * less congestion
+* the payload contains a timestamp (`id;ts`) and is propagated as long as needed
 
-È presente anche un **cleaner periodico** che rimuove peer non più attivi.
+There is also a **periodic cleaner** that removes peers that are no longer active.
 
-Il discovery viene usato come “black box” da `PeerImpl` per ottenere la lista aggiornata degli avversari possibili.
+Discovery is used as a "black box" by `PeerImpl` to obtain the up-to-date list of possible opponents.
 
 ---
 
-### `PeerImpl.java` – Protocollo distribuito completo
+### `PeerImpl.java` – Complete Distributed Protocol
 
-Questa classe contiene tutta la logica del peer:
+This class contains all the peer logic:
 
-### Stato
+### State
 
-* identificatore
+* identifier
 * game board
 * discovery
-* avversario remoto + stub RMI
-* simboli assegnati
+* remote opponent + RMI stub
+* assigned symbols
 * token (bool)
-* rematch e matchmaking automatico
+* rematch and automatic matchmaking
 * thread scheduler
 
-### Matchmaking distribuito
+### Distributed Matchmaking
 
-Esegue periodicamente:
+It periodically performs:
 
-1. recupero vista dal discovery
-2. filtraggio peer vivi e liberi (`ping`, `isInGame`)
-3. symmetry breaking: si seleziona il **successore lessicografico**
-4. invio proposta di match
-5. se accettata → setup partita
+1. retrieval of the view from discovery
+2. filtering of live and free peers (`ping`, `isInGame`)
+3. symmetry breaking: the **lexicographic successor** is selected
+4. sending the match proposal
+5. if accepted → game setup
 
-Inoltre:
+In addition, it:
 
-* impedisce match immediati con l’ultimo avversario (`lastOpponentId`);
-* gestisce failure durante lookup e chiamate remote.
+* prevents immediate matches with the last opponent (`lastOpponentId`);
+* handles failures during lookups and remote calls.
 
 ### Token-based Game
 
-Chi ha il token:
+Whoever holds the token:
 
-* può fare la mossa
-* la comunica via RMI
-* alla fine passa il token all’avversario
+* can make the move
+* communicates it via RMI
+* passes the token to the opponent at the end
 
-È una mutua esclusione distribuita semplice ed efficace.
+This is a simple and effective form of distributed mutual exclusion.
 
-### Rematch (mini-consenso a due)
+### Rematch (two-party mini-consensus)
 
-Il coordinatore (ID più piccolo):
+The coordinator (the smaller ID):
 
-1. raccoglie sia la decisione locale sia quella remota
-2. se entrambe positive → `startRematch`
-3. altrimenti → `noRematch`
+1. collects both the local and the remote decision
+2. if both are positive → `startRematch`
+3. otherwise → `noRematch`
 
-Chi non è coordinatore si limita a dare la propria decisione ed attendere.
+The non-coordinator simply provides its own decision and waits.
 
 ---
 
-## Compilazione e esecuzione
+## Compilation and Execution
 
-### Requisiti
+### Requirements
 
 * Java 8+
-* Rete locale che supporti Multicast UDP
+* A local network supporting UDP Multicast
 
-### Compilazione
+### Compilation
 
 ```bash
 javac gamep2p/*.java
 ```
 
-### Esecuzione
+### Execution
 
 ```bash
-java gamep2p.AutoPeerMain 
+java gamep2p.AutoPeerMain
 ```
-o
+or
 
 ```bash
-java gamep2p.AutoPeerMain <host> [porta]
+java gamep2p.AutoPeerMain <host> [port]
 ```
 
-Esempio:
+Example:
 
 ```bash
 java gamep2p.AutoPeerMain 192.168.1.20 5001
 java gamep2p.AutoPeerMain 192.168.1.20 5002
 ```
 
-
-## Autore
+## Author
 
 **Simone Candiani**
-Corso di Laurea Magistrale in Informatica – UNIMORE
+Master's Degree in Computer Science – UNIMORE
